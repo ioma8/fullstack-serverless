@@ -21,8 +21,11 @@ class ServerlessFullstackPlugin {
     this.cliOptions = cliOptions || {};
     this.aws = this.serverless.getProvider("aws");
 
-    if (this.cliOptions["only-lambdas"] !== false) {
-        this.serverless.cli.log(`Not updating static S3 files`);
+    if (
+      "only-lambdas" in this.cliOptions &&
+      this.cliOptions["only-lambdas"] !== false
+    ) {
+      this.serverless.cli.log(`Not updating static S3 files`);
       return;
     }
 
