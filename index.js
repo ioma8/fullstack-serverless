@@ -22,7 +22,7 @@ class ServerlessFullstackPlugin {
     this.aws = this.serverless.getProvider("aws");
 
     if (this.cliOptions["only-lambdas"] !== false) {
-        this.serverless.cli.log(`Deleting all objects from bucket...`);
+        this.serverless.cli.log(`Not updating static S3 files`);
       return;
     }
 
