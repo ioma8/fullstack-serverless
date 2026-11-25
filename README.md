@@ -5,8 +5,7 @@
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/MadSkills-io/fullstack-serverless/master/LICENSE)
 [![npm downloads](https://img.shields.io/npm/dt/fullstack-serverless.svg?style=flat)](https://www.npmjs.com/package/fullstack-serverless)
 
-A [serverless](http://www.serverless.com) plugin that automatically creates an AWS CloudFront distribution that serves static web content from S3 and optionally routes API traffic
-to API Gateway.  
+A [serverless](http://www.serverless.com) plugin that automatically creates an AWS CloudFront distribution that serves static web content from S3 and optionally routes API traffic to API Gateway.  
 
 Home page - https://www.madskills.io/fullstack-serverless/
 
@@ -17,9 +16,10 @@ Home page - https://www.madskills.io/fullstack-serverless/
 - No CORS needed
 - Enables CDN caching of resources - so you don't waste Lambda invocations or API Gateway traffic
   for serving static files (just [set Cache-Control headers](https://serverless.com/framework/docs/providers/aws/events/apigateway/#custom-response-headers) in API responses)
-- Much more CloudWatch statistics of API usage (like bandwidth metrics)
+- More CloudWatch statistics of API usage (like bandwidth metrics)
 - Real world [access log](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/AccessLogs.html) - out of the box, API Gateway currently does not provide any kind of real "apache-like" access logs for your invocations
 - [Web Application Firewall](https://aws.amazon.com/waf/) support - enable AWS WAF to protect your API from security threats
+- Can be used to manage S3 content and CloudFront without API Gateway by simply not defining any functions
 
 ## Before you begin
 * Install the serverless framework
@@ -475,6 +475,82 @@ Use this parameter if you do not want a confirmation prompt to interrupt automat
 
 ---
 
+**origins**
+
+_optional_, default: `not set`
+
+```yaml
+custom:
+  fullstack:
+    ...
+    origins:
+      - Id: Media
+        DomainName: 
+          Fn::GetAtt:
+            - MediaBucket
+            - DomainName
+        S3OriginConfig:
+          OriginAccessIdentity:
+            Fn::Join:
+              - ''
+              - - origin-access-identity/cloudfront/
+                - { Ref: S3OriginAccessIdentity }
+    ...
+```
+
+Use this parameter if you want to add additional origins to the CloudFormation resources.
+
+---
+
+**defaultCacheBehavior**
+
+_optional_, default: `not set`
+
+```yaml
+custom:
+  fullstack:
+    ...
+    defaultCacheBehavior:
+      MinTTL: 3600
+    ...
+```
+
+---
+
+**cacheBehaviors**
+
+_optional_, default: `not set`
+
+```yaml
+custom:
+  fullstack:
+    ...
+    cacheBehaviors:
+      - TargetOriginId: Media
+        PathPattern: media/*
+        AllowedMethods:
+          - GET
+          - HEAD
+          - OPTIONS
+        CachedMethods:
+          - HEAD
+          - GET
+        ForwardedValues:
+          QueryString: true
+          Headers:
+            - Accept
+            - Referer
+            - Authorization
+            - Content-Type
+        ViewerProtocolPolicy: redirect-to-https
+        ...
+    ...
+```
+
+Use this parameter if you want to add additional cache behaviors to the CloudFormation resources.
+
+---
+
 ### Command-line Parameters
 
 
@@ -499,6 +575,21 @@ serverless client deploy --no-generate-client
 ```
 
 Use this parameter if you do not want to generate the client code before deploying. Files uploaded during deployment will still replace any corresponding files already in your bucket.
+
+---
+
+**--no-client-deploy**
+
+_optional_, default `false` (deploys the generated client code by default)
+
+```bash
+serverless deploy --no-client-deploy
+```
+
+Use this parameter if you do not want to deploy the client along with the rest of the serverless stack. Almost certainly in this case you don't want to generate the client code either and will want to use 
+```bash
+serverless deploy --no-generate-client --no-client-deploy
+```
 
 ---
 
@@ -538,6 +629,7 @@ Use this parameter if you do not want to invalidate the CloudFront distribution.
 - [hakimio](https://github.com/hakimio)
 - [artoliukkonen](https://github.com/artoliukkonen)
 - [pecirep](https://github.com/pecirep)
+- [miguel-a-calles-mba](https://github.com/miguel-a-calles-mba)
 
 ## Credits
 Forked from the [**serverless-api-cloudfront**](https://github.com/Droplr/serverless-api-cloudfront/)  

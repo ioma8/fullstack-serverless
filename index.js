@@ -177,118 +177,122 @@ class ServerlessFullstackPlugin {
   }
 
   processDeployment() {
-    let region,
-      distributionFolder,
-      clientPath,
-      bucketName,
-      headerSpec,
-      indexDoc,
-      errorDoc,
-      invalidationPaths;
+    if (this.cliOptions["client-deploy"] !== false) {
+      let region,
+        distributionFolder,
+        clientPath,
+        bucketName,
+        headerSpec,
+        indexDoc,
+        errorDoc,
+        invalidationPaths;
 
-    return this.validateConfig()
-      .then(() => {
-        // region is set based on the following order of precedence:
-        // If specified, the CLI option is used
-        // If region is not specified via the CLI, we use the region option specified
-        //   under custom/client in serverless.yml
-        // Otherwise, use the Serverless region specified under provider in serverless.yml
-        region =
-          this.cliOptions.region ||
-          this.options.region ||
-          _.get(this.serverless, "service.provider.region");
+      return this.validateConfig()
+        .then(() => {
+          // region is set based on the following order of precedence:
+          // If specified, the CLI option is used
+          // If region is not specified via the CLI, we use the region option specified
+          //   under custom/client in serverless.yml
+          // Otherwise, use the Serverless region specified under provider in serverless.yml
+          region =
+            this.cliOptions.region ||
+            this.options.region ||
+            _.get(this.serverless, "service.provider.region");
 
-        distributionFolder =
-          this.options.distributionFolder || path.join("client/dist");
-        clientPath = path.join(
-          this.serverless.config.servicePath,
-          distributionFolder
-        );
-        bucketName = this.getBucketName(this.options.bucketName);
-        headerSpec = this.options.objectHeaders;
-        indexDoc = this.options.indexDocument || "index.html";
-        errorDoc = this.options.errorDocument || "error.html";
-        invalidationPaths = this.options.invalidationPaths || ["/*"];
+          distributionFolder =
+            this.options.distributionFolder || path.join("client/dist");
+          clientPath = path.join(
+            this.serverless.config.servicePath,
+            distributionFolder
+          );
+          bucketName = this.getBucketName(this.options.bucketName);
+          headerSpec = this.options.objectHeaders;
+          indexDoc = this.options.indexDocument || "index.html";
+          errorDoc = this.options.errorDocument || "error.html";
+          invalidationPaths = this.options.invalidationPaths || ["/*"];
 
-        if (!Array.isArray(invalidationPaths)) {
-          invalidationPaths = [invalidationPaths];
-        }
+          if (!Array.isArray(invalidationPaths)) {
+            invalidationPaths = [invalidationPaths];
+          }
 
-        //paths must start with '/'
-        invalidationPaths = invalidationPaths.map((path) =>
-          path[0] === "/" ? path : "/" + path
-        );
+          //paths must start with '/'
+          invalidationPaths = invalidationPaths.map((path) =>
+            path[0] === "/" ? path : "/" + path
+          );
 
-        const deployDescribe = ["This deployment will:"];
+          const deployDescribe = ["This deployment will:"];
 
-        if (this.cliOptions["delete-contents"] !== false) {
+          if (this.cliOptions["delete-contents"] !== false) {
+            deployDescribe.push(
+              `- Remove all existing files from bucket '${bucketName}'`
+            );
+          }
           deployDescribe.push(
-            `- Remove all existing files from bucket '${bucketName}'`
+            `- Upload all files from '${distributionFolder}' to bucket '${bucketName}'`
           );
-        }
-        deployDescribe.push(
-          `- Upload all files from '${distributionFolder}' to bucket '${bucketName}'`
-        );
 
-        deployDescribe.forEach((m) => this.serverless.cli.log(m));
-        return this.cliOptions.confirm === false ||
-          this.options.noConfirm === true
-          ? true
-          : new Confirm(`Do you want to proceed?`).run();
-      })
-      .then((goOn) => {
-        if (goOn) {
-          this.serverless.cli.log(`Looking for bucket '${bucketName}'...`);
-          return bucketUtils
-            .bucketExists(this.aws, bucketName)
-            .then((exists) => {
-              if (exists) {
-                this.serverless.cli.log(`Bucket found...`);
-                if (this.cliOptions["delete-contents"] === false) {
-                  this.serverless.cli.log(`Keeping current bucket contents...`);
-                  return BbPromise.resolve();
+          deployDescribe.forEach((m) => this.serverless.cli.log(m));
+          return this.cliOptions.confirm === false ||
+            this.options.noConfirm === true
+            ? true
+            : new Confirm(`Do you want to proceed?`).run();
+        })
+        .then((goOn) => {
+          if (goOn) {
+            this.serverless.cli.log(`Looking for bucket '${bucketName}'...`);
+            return bucketUtils
+              .bucketExists(this.aws, bucketName)
+              .then((exists) => {
+                if (exists) {
+                  this.serverless.cli.log(`Bucket found...`);
+                  if (this.cliOptions["delete-contents"] === false) {
+                    this.serverless.cli.log(`Keeping current bucket contents...`);
+                    return BbPromise.resolve();
+                  }
+
+                  this.serverless.cli.log(`Deleting all objects from bucket...`);
+                  return bucketUtils.emptyBucket(this.aws, bucketName);
+                } else {
+                  this.serverless.cli.log(
+                    `Bucket does not exist. Run ${chalk.black(
+                      "serverless deploy"
+                    )}`
+                  );
+                  return BbPromise.reject("Bucket does not exist!");
                 }
-
-                this.serverless.cli.log(`Deleting all objects from bucket...`);
-                return bucketUtils.emptyBucket(this.aws, bucketName);
-              } else {
-                this.serverless.cli.log(
-                  `Bucket does not exist. Run ${chalk.black(
-                    "serverless deploy"
-                  )}`
+              })
+              .then(() => {
+                this.serverless.cli.log(`Uploading client files to bucket...`);
+                return uploadDirectory(
+                  this.aws,
+                  bucketName,
+                  clientPath,
+                  headerSpec
                 );
-                return BbPromise.reject("Bucket does not exist!");
-              }
-            })
-            .then(() => {
-              this.serverless.cli.log(`Uploading client files to bucket...`);
-              return uploadDirectory(
-                this.aws,
-                bucketName,
-                clientPath,
-                headerSpec
-              );
-            })
-            .then(() => {
-              this.serverless.cli.log(`Success! Client deployed.`);
-            });
-        }
-        this.serverless.cli.log("Client deployment cancelled");
-        return BbPromise.resolve();
-      })
-      .then(() => {
-        if (this.cliOptions["invalidate-distribution"] === false) {
-          this.serverless.cli.log(`Skipping cloudfront invalidation...`);
-        } else {
-          return invalidateCloudfrontDistribution(
-            this.serverless,
-            invalidationPaths
-          );
-        }
-      })
-      .catch((error) => {
-        return BbPromise.reject(new this.error(error));
-      });
+              })
+              .then(() => {
+                this.serverless.cli.log(`Success! Client deployed.`);
+              });
+          }
+          this.serverless.cli.log("Client deployment cancelled");
+          return BbPromise.resolve();
+        })
+        .then(() => {
+          if (this.cliOptions["invalidate-distribution"] === false) {
+            this.serverless.cli.log(`Skipping cloudfront invalidation...`);
+          } else {
+            return invalidateCloudfrontDistribution(
+              this.serverless,
+              invalidationPaths
+            );
+          }
+        })
+        .catch((error) => {
+          return BbPromise.reject(new this.error(error));
+        });
+    } else {
+      this.serverless.cli.log(`Skipping client deployment...`);
+    }
   }
 
   createDeploymentArtifacts() {
@@ -319,7 +323,7 @@ class ServerlessFullstackPlugin {
 
   removeApiGatewayOrigin(baseResources) {
     this.serverless.cli.log(
-      `ApiGatewayRestApi not found, removing orgin from CloudFront...`
+      `ApiGatewayRestApi not found, removing origin from CloudFront...`
     );
     const distributionConfig =
       baseResources.Resources.ApiDistribution.Properties.DistributionConfig;
@@ -421,7 +425,7 @@ class ServerlessFullstackPlugin {
     this.prepareSinglePageApp(resources.Resources);
     this.prepareS3(resources.Resources);
     this.prepareMinimumProtocolVersion(distributionConfig);
-    this.prepareCompressWebContent(distributionConfig);
+    this.prepareDefaultCacheBehavior(distributionConfig);
   }
 
   prepareLogging(distributionConfig) {
@@ -463,6 +467,11 @@ class ServerlessFullstackPlugin {
         origin.OriginPath = `/${this.getStage()}`;
       }
     }
+
+    const customOrigins = this.getConfig("origins", null);
+    if (customOrigins) {
+      distributionConfig.Origins.push(...customOrigins);
+    }
   }
 
   preparePathPattern(distributionConfig) {
@@ -472,6 +481,11 @@ class ServerlessFullstackPlugin {
       if (cacheBehavior.TargetOriginId === "ApiGateway") {
         cacheBehavior.PathPattern = `${apiPath}/*`;
       }
+    }
+
+    const customCacheBehaviors = this.getConfig("cacheBehaviors", null);
+    if (customCacheBehaviors) {
+      distributionConfig.CacheBehaviors.push(...customCacheBehaviors);
     }
   }
 
@@ -608,10 +622,16 @@ class ServerlessFullstackPlugin {
     resources.WebAppS3Bucket.Properties.WebsiteConfiguration.ErrorDocument = errorDocument;
   }
 
-  prepareCompressWebContent(distributionConfig) {
+  prepareDefaultCacheBehavior(distributionConfig) {
+    const defaultCacheBehavior = this.getConfig("defaultCacheBehavior", {});
     const compressWebContent = this.getConfig("compressWebContent", true);
 
-    distributionConfig.DefaultCacheBehavior.Compress = compressWebContent;
+    distributionConfig.DefaultCacheBehavior = Object.assign(
+      {},
+      distributionConfig.DefaultCacheBehavior,
+      defaultCacheBehavior,
+      { Compress: compressWebContent }
+    );
   }
 
   getBucketName(bucketName) {
